@@ -9,7 +9,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 
 PyInstaller.__main__.run([
     'gage_rr_analysis.py',
-    '--onefile',
+    '--onedir',
     '--name=GageRRAnalysis',
     '--clean',
     '--noconsole',
