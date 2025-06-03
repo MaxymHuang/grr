@@ -336,7 +336,29 @@ def plot_results(data, results, measurement_name):
     plt.savefig(f'gage_rr_plots_{measurement_name}.png', dpi=150)
     plt.close(fig)
 
-def create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_report, summary_stats):
+def ask_report_options():
+    import tkinter as tk
+    from tkinter import BooleanVar, Checkbutton, Button
+    result = {'include_cleaning': True, 'include_summary': True}
+    root = tk.Tk()
+    root.title("Report Options")
+    tk.Label(root, text="Select which sections to include in the PDF report:").pack(padx=10, pady=10)
+    var_cleaning = BooleanVar(value=True)
+    var_summary = BooleanVar(value=True)
+    cb1 = Checkbutton(root, text="Include Data Cleaning Report", variable=var_cleaning)
+    cb2 = Checkbutton(root, text="Include Summary Statistics", variable=var_summary)
+    cb1.pack(anchor='w', padx=20)
+    cb2.pack(anchor='w', padx=20)
+    def on_ok():
+        result['include_cleaning'] = var_cleaning.get()
+        result['include_summary'] = var_summary.get()
+        root.quit()
+    Button(root, text="OK", command=on_ok).pack(pady=10)
+    root.mainloop()
+    root.destroy()
+    return result
+
+def create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_report, summary_stats, report_options):
     """Create a PDF report with ANOVA results and plots."""
     # Create the PDF document
     doc = SimpleDocTemplate("gage_rr_report.pdf", pagesize=letter)
@@ -352,11 +374,12 @@ def create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_repor
     )
     story.append(Paragraph("Gage R&R Analysis Report", title_style))
     
-    # Add Data Cleaning Report
-    story.append(Paragraph("Data Cleaning Report", styles['Heading2']))
-    for line in cleaning_report:
-        story.append(Paragraph(str(line), styles['Normal']))
-    story.append(Spacer(1, 20))
+    # Conditionally add Data Cleaning Report
+    if report_options.get('include_cleaning', True):
+        story.append(Paragraph("Data Cleaning Report", styles['Heading2']))
+        for line in cleaning_report:
+            story.append(Paragraph(str(line), styles['Normal']))
+        story.append(Spacer(1, 20))
     
     # Process each measurement
     for measurement_name, data in data_dict.items():
@@ -367,27 +390,28 @@ def create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_repor
         story.append(Paragraph(f"Analysis for {measurement_name}", styles['Heading2']))
         story.append(Spacer(1, 12))
         
-        # Add Summary Statistics Table
-        story.append(Paragraph("Summary Statistics by Part", styles['Heading3']))
-        stats_df = summary_stats.get(measurement_name)
-        if stats_df is not None:
-            stats_data = [list(stats_df.columns)] + stats_df.values.tolist()
-            stats_table = Table(stats_data)
-            stats_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 10),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ]))
-            story.append(stats_table)
-            story.append(Spacer(1, 20))
+        # Conditionally add Summary Statistics Table
+        if report_options.get('include_summary', True):
+            story.append(Paragraph("Summary Statistics by Part", styles['Heading3']))
+            stats_df = summary_stats.get(measurement_name)
+            if stats_df is not None:
+                stats_data = [list(stats_df.columns)] + stats_df.values.tolist()
+                stats_table = Table(stats_data)
+                stats_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                    ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 1), (-1, -1), 10),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ]))
+                story.append(stats_table)
+                story.append(Spacer(1, 20))
         
         # Add ANOVA Table
         story.append(Paragraph("ANOVA Results", styles['Heading3']))
@@ -522,7 +546,7 @@ def create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_repor
             story.append(Spacer(1, 20))
         
         # Generate and add plots
-        story.append(Paragraph("Gage R&R Plots", styles['Heading3']))
+        # story.append(Paragraph("Gage R&R Plots", styles['Heading3']))
         story.append(Spacer(1, 12))
         
         # Create the plots
@@ -582,6 +606,8 @@ def main():
             return
         # Clean and prepare data
         data_dict, cleaning_report, summary_stats = clean_data(df, measurement_cols=selected_cols)
+        # Ask user which report sections to include
+        report_options = ask_report_options()
         # Perform Gage R&R analysis for each measurement
         results_dict = {}
         anova_tables_dict = {}
@@ -595,7 +621,7 @@ def main():
             results_dict[measurement_name] = results
             anova_tables_dict[measurement_name] = anova_table
         # Create PDF report
-        create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_report, summary_stats)
+        create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_report, summary_stats, report_options)
         print("\nReport has been saved as 'gage_rr_report.pdf'")
         # Show completion message
         root = tk.Tk()
