@@ -16,35 +16,67 @@ import os
 import matplotlib.ticker as mticker
 from matplotlib.gridspec import GridSpec
 
-def clean_data(df):
-    """Clean and prepare the data for Gage R&R analysis."""
+def select_columns_gui(all_columns):
+    """Show a Tkinter window for the user to select columns for Gage R&R analysis."""
+    import tkinter as tk
+    from tkinter import messagebox
+
+    selected_cols = []
+    root = tk.Tk()
+    root.title("Select Measurement Columns")
+    tk.Label(root, text="Select columns to perform Gage R&R analysis:").pack(padx=10, pady=10)
+    listbox = tk.Listbox(root, selectmode=tk.MULTIPLE, width=40, height=min(20, len(all_columns)))
+    for col in all_columns:
+        listbox.insert(tk.END, col)
+    listbox.pack(padx=10, pady=10)
+    def on_ok():
+        selected = [all_columns[i] for i in listbox.curselection()]
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select at least one column.")
+            return
+        nonlocal selected_cols
+        selected_cols = selected
+        root.quit()  # Use quit instead of destroy here
+    ok_btn = tk.Button(root, text="OK", command=on_ok)
+    ok_btn.pack(pady=(0, 10))
+    root.mainloop()
+    root.destroy()  # Ensure window is destroyed after mainloop
+    return selected_cols
+
+def clean_data(df, measurement_cols=None):
+    cleaning_report = []
+    summary_stats = {}
     print("\nData Cleaning Report:")
     print("-" * 50)
     
     # Get all measurement columns (columns after Solder_Diameter_Layer1)
     # Exclude location_X, location_Y, Initial_H, and Retry_H
     excluded_cols = ['Location_X(pixel)', 'Location_Y(pixel)', 'Initial_H', 'Retry_H']
-    measurement_cols = [col for col in df.columns[df.columns.get_loc('Solder_Diameter_Layer1'):] 
-                       if col not in excluded_cols]
+    if measurement_cols is None:
+        measurement_cols = [col for col in df.columns[df.columns.get_loc('Solder_Diameter_Layer1'):] 
+                           if col not in excluded_cols]
+    else:
+        measurement_cols = [col for col in measurement_cols if col not in excluded_cols]
     
-    print("\nMeasurement columns to analyze:", measurement_cols)
-    print("\nExcluded columns:", excluded_cols)
+    cleaning_report.append(f"Measurement columns to analyze: {measurement_cols}")
+    cleaning_report.append(f"Excluded columns: {excluded_cols}")
     
     # 1. Check for missing values
     missing_values = df[measurement_cols].isnull().sum()
-    print("\nMissing Values:")
-    print(missing_values[missing_values > 0])
+    if missing_values[missing_values > 0].any():
+        cleaning_report.append("Missing Values:")
+        cleaning_report.append(str(missing_values[missing_values > 0]))
     
     # 2. Check data types
-    print("\nData Types:")
-    print(df[measurement_cols].dtypes)
+    cleaning_report.append("Data Types:")
+    cleaning_report.append(str(df[measurement_cols].dtypes))
     
     # 3. Check for negative or zero measurements
     for col in measurement_cols:
         negative_measurements = df[df[col] <= 0]
         if not negative_measurements.empty:
-            print(f"\nWarning: Found negative or zero measurements in {col}:")
-            print(negative_measurements[['Comp_Name', col]])
+            cleaning_report.append(f"Warning: Found negative or zero measurements in {col}:")
+            cleaning_report.append(str(negative_measurements[['Comp_Name', col]]))
     
     # 4. Check for outliers using IQR method
     for col in measurement_cols:
@@ -56,16 +88,15 @@ def clean_data(df):
         outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
         
         if not outliers.empty:
-            print(f"\nPotential Outliers in {col} (using IQR method):")
-            print(outliers[['Comp_Name', col]])
+            cleaning_report.append(f"Potential Outliers in {col} (using IQR method):")
+            cleaning_report.append(str(outliers[['Comp_Name', col]]))
     
-    # 5. Check for consistency in categorical data
-    print("\nUnique values in Comp_Name:", df['Comp_Name'].unique())
+    cleaning_report.append(f"Unique values in Comp_Name: {df['Comp_Name'].unique()}")
     
     # 6. Create summary statistics by Part
     for col in measurement_cols:
-        print(f"\nSummary Statistics for {col} by Part:")
-        print(df.groupby('Comp_Name')[col].agg(['count', 'mean', 'std', 'min', 'max']))
+        stats = df.groupby('Comp_Name')[col].agg(['count', 'mean', 'std', 'min', 'max'])
+        summary_stats[col] = stats.reset_index()
     
     # 7. Create box plots for visual inspection
     n_cols = len(measurement_cols)
@@ -107,13 +138,13 @@ def clean_data(df):
         # upper_bound = Q3 + 1.5 * IQR
         # data = data[(data['Measurement'] >= lower_bound) & (data['Measurement'] <= upper_bound)]
         
-        print(f"\nFinal Data Shape for {col}:", data.shape)
-        print(f"Number of unique Parts: {data['Part'].nunique()}")
-        print(f"Total number of measurements: {len(data)}")
+        cleaning_report.append(f"Final Data Shape for {col}: {data.shape}")
+        cleaning_report.append(f"Number of unique Parts: {data['Part'].nunique()}")
+        cleaning_report.append(f"Total number of measurements: {len(data)}")
         
         data_dict[col] = data
     
-    return data_dict
+    return data_dict, cleaning_report, summary_stats
 
 def read_data(file_path):
     """Read the data from the text file."""
@@ -225,7 +256,6 @@ def plot_results(data, results, measurement_name):
     n = s_n if s_n > 1 else 2
     s_chart_constants = {2: (1.128, 0.853, 1.747), 3: (1.693, 0.888, 1.954), 4: (2.059, 0.94, 2.089), 5: (2.326, 0.97, 2.185)}
     c4, B3, B4 = s_chart_constants.get(n, (1.128, 0.853, 1.747))
-    sbar = np.mean(stds.values)
     s_UCL = sbar * B4
     s_LCL = sbar * B3
     s_CL = sbar
@@ -306,7 +336,7 @@ def plot_results(data, results, measurement_name):
     plt.savefig(f'gage_rr_plots_{measurement_name}.png', dpi=150)
     plt.close(fig)
 
-def create_pdf_report(results_dict, anova_tables_dict, data_dict):
+def create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_report, summary_stats):
     """Create a PDF report with ANOVA results and plots."""
     # Create the PDF document
     doc = SimpleDocTemplate("gage_rr_report.pdf", pagesize=letter)
@@ -322,6 +352,12 @@ def create_pdf_report(results_dict, anova_tables_dict, data_dict):
     )
     story.append(Paragraph("Gage R&R Analysis Report", title_style))
     
+    # Add Data Cleaning Report
+    story.append(Paragraph("Data Cleaning Report", styles['Heading2']))
+    for line in cleaning_report:
+        story.append(Paragraph(str(line), styles['Normal']))
+    story.append(Spacer(1, 20))
+    
     # Process each measurement
     for measurement_name, data in data_dict.items():
         results = results_dict[measurement_name]
@@ -330,6 +366,28 @@ def create_pdf_report(results_dict, anova_tables_dict, data_dict):
         # Add measurement title
         story.append(Paragraph(f"Analysis for {measurement_name}", styles['Heading2']))
         story.append(Spacer(1, 12))
+        
+        # Add Summary Statistics Table
+        story.append(Paragraph("Summary Statistics by Part", styles['Heading3']))
+        stats_df = summary_stats.get(measurement_name)
+        if stats_df is not None:
+            stats_data = [list(stats_df.columns)] + stats_df.values.tolist()
+            stats_table = Table(stats_data)
+            stats_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ]))
+            story.append(stats_table)
+            story.append(Spacer(1, 20))
         
         # Add ANOVA Table
         story.append(Paragraph("ANOVA Results", styles['Heading3']))
@@ -372,9 +430,18 @@ def create_pdf_report(results_dict, anova_tables_dict, data_dict):
         story.append(Paragraph("Variance Components", styles['Heading3']))
         story.append(Spacer(1, 12))
         
-        var_data = [['Component', 'Value']]
-        for component, value in results['Variance Components'].items():
-            var_data.append([component, f"{value:.6f}"])
+        var_data = [['Source', 'VarComp', '%Contribution (of VarComp)']]
+        var_comp = results['Variance Components']
+        pct_contrib = results['Percent Contribution']
+        # Map keys to match image
+        row_order = [
+            ('Total Gage R&R', var_comp['Repeatability'], pct_contrib['Repeatability']),
+            ('Repeatability', var_comp['Repeatability'], pct_contrib['Repeatability']),
+            ('Part-To-Part', var_comp['Part'], pct_contrib['Part']),
+            ('Total Variation', var_comp['Total'], 100.0)
+        ]
+        for row in row_order:
+            var_data.append([row[0], f"{row[1]:.8f}", f"{row[2]:.2f}"])
         
         var_table = Table(var_data)
         var_table.setStyle(TableStyle([
@@ -418,6 +485,42 @@ def create_pdf_report(results_dict, anova_tables_dict, data_dict):
         story.append(pct_table)
         story.append(Spacer(1, 20))
         
+        # Add Gage Evaluation Table and Number of Distinct Categories BEFORE the plot
+        study_var = results['Study Variation']
+        pct_study_var = results['Percent Study Variation']
+        stddev = {k: np.sqrt(var_comp[k]) for k in var_comp}
+        gage_eval_data = [['Source', 'StdDev (SD)', 'Study Var (6 x SD)', '%Study Var (%SV)']]
+        row_order_eval = [
+            ('Total Gage R&R', stddev['Repeatability'], study_var['Repeatability'], pct_study_var['Repeatability']),
+            ('Repeatability', stddev['Repeatability'], study_var['Repeatability'], pct_study_var['Repeatability']),
+            ('Part-To-Part', stddev['Part'], study_var['Part'], pct_study_var['Part']),
+            ('Total Variation', stddev['Total'], study_var['Total'], 100.0)
+        ]
+        for row in row_order_eval:
+            gage_eval_data.append([row[0], f"{row[1]:.6f}", f"{row[2]:.6f}", f"{row[3]:.2f}"])
+        
+        gage_eval_table = Table(gage_eval_data)
+        gage_eval_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        story.append(gage_eval_table)
+        story.append(Spacer(1, 20))
+        
+        ndc = results.get('Number of Distinct Categories', None)
+        if ndc is not None:
+            story.append(Paragraph(f"Number of Distinct Categories = {ndc}", styles['Normal']))
+            story.append(Spacer(1, 20))
+        
         # Generate and add plots
         story.append(Paragraph("Gage R&R Plots", styles['Heading3']))
         story.append(Spacer(1, 12))
@@ -429,7 +532,7 @@ def create_pdf_report(results_dict, anova_tables_dict, data_dict):
         img = Image(f'gage_rr_plots_{measurement_name}.png', width=7*inch, height=8.4*inch)
         story.append(img)
         story.append(Spacer(1, 20))
-    
+
     # Build the PDF
     doc.build(story)
 
@@ -437,10 +540,8 @@ def select_file():
     """Open a file dialog to select the data file."""
     root = tk.Tk()
     root.withdraw()  # Hide the main window
-    
     # Get the user's home directory
     home_dir = os.path.expanduser("~")
-    
     # Open file dialog
     file_path = filedialog.askopenfilename(
         initialdir=home_dir,
@@ -450,12 +551,17 @@ def select_file():
             ("All files", "*.*")
         )
     )
-    
+    root.destroy()  # Ensure window is destroyed
     if not file_path:  # If user cancels the dialog
         print("No file selected. Exiting...")
         return None
-    
     return file_path
+
+def calculate_ndc(var_part, var_gage_rr):
+    if var_gage_rr == 0:
+        return np.nan
+    ndc = int(np.floor(1.41 * np.sqrt(var_part) / np.sqrt(var_gage_rr)))
+    return ndc
 
 def main():
     try:
@@ -463,42 +569,50 @@ def main():
         file_path = select_file()
         if file_path is None:
             return
-        
         print(f"\nSelected file: {file_path}")
-        
         # Read and prepare data
         df = read_data(file_path)
-        
+        # Get all eligible measurement columns
+        excluded_cols = ['Location_X(pixel)', 'Location_Y(pixel)', 'Initial_H', 'Retry_H']
+        all_measurement_cols = [col for col in df.columns[df.columns.get_loc('Solder_Diameter_Layer1'):] if col not in excluded_cols]
+        # Let user select columns
+        selected_cols = select_columns_gui(all_measurement_cols)
+        if not selected_cols:
+            print("No columns selected. Exiting...")
+            return
         # Clean and prepare data
-        data_dict = clean_data(df)
-        
+        data_dict, cleaning_report, summary_stats = clean_data(df, measurement_cols=selected_cols)
         # Perform Gage R&R analysis for each measurement
         results_dict = {}
         anova_tables_dict = {}
-        
         for measurement_name, data in data_dict.items():
             print(f"\nPerforming Gage R&R analysis for {measurement_name}")
             results, anova_table = perform_gage_rr(data)
+            var_part = results['Variance Components']['Part']
+            var_gage_rr = results['Variance Components']['Repeatability']
+            ndc = calculate_ndc(var_part, var_gage_rr)
+            results['Number of Distinct Categories'] = ndc
             results_dict[measurement_name] = results
             anova_tables_dict[measurement_name] = anova_table
-        
         # Create PDF report
-        create_pdf_report(results_dict, anova_tables_dict, data_dict)
+        create_pdf_report(results_dict, anova_tables_dict, data_dict, cleaning_report, summary_stats)
         print("\nReport has been saved as 'gage_rr_report.pdf'")
-        
         # Show completion message
         root = tk.Tk()
         root.withdraw()
-        tk.messagebox.showinfo("Analysis Complete", 
+        import tkinter.messagebox
+        tkinter.messagebox.showinfo("Analysis Complete", 
                              "Gage R&R analysis has been completed.\n"
                              "The report has been saved as 'gage_rr_report.pdf'")
-        
+        root.destroy()
     except Exception as e:
         print(f"An error occurred: {str(e)}")
         # Show error message
         root = tk.Tk()
         root.withdraw()
-        tk.messagebox.showerror("Error", f"An error occurred:\n{str(e)}")
+        import tkinter.messagebox
+        tkinter.messagebox.showerror("Error", f"An error occurred:\n{str(e)}")
+        root.destroy()
         raise
 
 if __name__ == "__main__":

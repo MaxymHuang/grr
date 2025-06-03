@@ -12,6 +12,7 @@ PyInstaller.__main__.run([
     '--onefile',
     '--name=GageRRAnalysis',
     '--clean',
+    '--noconsole',
     # '--icon=' + icon_path,  # Uncomment when you have an icon
     '--add-data=requirements.txt;.',
 ]) 
