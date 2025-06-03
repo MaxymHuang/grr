@@ -13,6 +13,8 @@ import io
 import tkinter as tk
 from tkinter import filedialog
 import os
+import matplotlib.ticker as mticker
+from matplotlib.gridspec import GridSpec
 
 def clean_data(df):
     """Clean and prepare the data for Gage R&R analysis."""
@@ -199,78 +201,110 @@ def perform_gage_rr(data):
     return results, anova_table
 
 def plot_results(data, results, measurement_name):
-    """Create plots for Gage R&R analysis."""
-    # Create a figure with subplots
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
-    
-    # Plot 1: Components of Variation
-    components = pd.Series(results['Percent Contribution'])
-    bars = components.plot(kind='bar', ax=ax1)
+    """
+    Create a 2x2 grid of plots matching the provided example image for each measurement.
+    Plots: Components of Variation, S Chart, Measurement by Part, XBar Chart.
+    All plots are the same size.
+    """
+    # Prepare data
+    part_col = 'Part' if 'Part' in data.columns else 'Comp_Name'
+    measurement_col = 'Measurement'
+    grouped = data.groupby(part_col)[measurement_col]
+    means = grouped.mean()
+    stds = grouped.std(ddof=1)
+    parts = means.index.astype(str)
+
+    # XBar Chart (means)
+    xbar = means.values
+    xbar_cl = np.mean(xbar)
+    xbar_s = np.std(xbar, ddof=1)
+    xbar_n = len(xbar)
+    # S Chart (stddevs)
+    sbar = np.mean(stds.values)
+    s_n = grouped.count().min()  # Smallest subgroup size
+    n = s_n if s_n > 1 else 2
+    s_chart_constants = {2: (1.128, 0.853, 1.747), 3: (1.693, 0.888, 1.954), 4: (2.059, 0.94, 2.089), 5: (2.326, 0.97, 2.185)}
+    c4, B3, B4 = s_chart_constants.get(n, (1.128, 0.853, 1.747))
+    sbar = np.mean(stds.values)
+    s_UCL = sbar * B4
+    s_LCL = sbar * B3
+    s_CL = sbar
+
+    # XBar chart limits (using stddev of means)
+    A3 = 1.023  # For n=2, adjust if needed
+    xbar_UCL = xbar_cl + A3 * sbar
+    xbar_LCL = xbar_cl - A3 * sbar
+
+    # Components of Variation
+    percent_contrib = results['Percent Contribution']
+    percent_study_var = results['Study Variation']
+    # Align keys for both dicts
+    all_keys = list(set(percent_contrib.keys()) | set(percent_study_var.keys()))
+    all_keys.sort()  # Optional: sort for consistent order
+    contrib_vals = [percent_contrib.get(k, 0) for k in all_keys]
+    study_var_vals = [percent_study_var.get(k, 0) for k in all_keys]
+    labels = all_keys
+
+    # Start plotting with equal-sized subplots
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    plt.subplots_adjust(top=0.88)
+
+    # Title
+    fig.suptitle(f"Gage R&R (ANOVA) Report for {measurement_name}", fontsize=18, fontweight='bold', y=0.98)
+
+    # Components of Variation (Top Left)
+    ax1 = axes[0, 0]
+    width = 0.35
+    x = np.arange(len(labels))
+    ax1.bar(x - width/2, contrib_vals, width, label='% Contribution', color='#4F81BD')
+    ax1.bar(x + width/2, study_var_vals, width, label='% Study Var', color='#C0504D')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, rotation=0)
+    ax1.set_ylabel('Percent')
+    ax1.set_ylim(0, 110)
+    ax1.legend()
     ax1.set_title('Components of Variation')
-    ax1.set_ylabel('Percent Contribution')
-    ax1.tick_params(axis='x', rotation=45)
-    
-    # Add value labels on top of bars
-    for i, v in enumerate(components):
-        ax1.text(i, v, f'{v:.1f}%', ha='center', va='bottom')
-    
-    # Plot 2: Response by Part
-    sns.boxplot(x='Part', y='Measurement', data=data, ax=ax2)
-    ax2.set_title('Response by Part')
-    ax2.set_xlabel('Part')
-    ax2.set_ylabel('Measurement')
-    ax2.tick_params(axis='x', rotation=45)
-    
-    # Add mean values for each part
-    part_means = data.groupby('Part')['Measurement'].mean()
-    for i, (part, mean) in enumerate(part_means.items()):
-        ax2.text(i, mean, f'{mean:.3f}', ha='center', va='bottom')
-    
-    # Plot 3: X-bar Chart
-    part_means = data.groupby('Part')['Measurement'].mean()
-    part_std = data.groupby('Part')['Measurement'].std()
-    grand_mean = data['Measurement'].mean()
-    ucl = grand_mean + 3 * part_std.mean()
-    lcl = grand_mean - 3 * part_std.mean()
-    
-    part_means.plot(kind='line', marker='o', ax=ax3)
-    ax3.axhline(y=grand_mean, color='r', linestyle='--', label=f'Grand Mean: {grand_mean:.3f}')
-    ax3.axhline(y=ucl, color='g', linestyle='--', label=f'UCL: {ucl:.3f}')
-    ax3.axhline(y=lcl, color='g', linestyle='--', label=f'LCL: {lcl:.3f}')
-    ax3.set_title('X-bar Chart by Part')
-    ax3.set_xlabel('Part')
-    ax3.set_ylabel('Mean Measurement')
-    
-    # Add value labels for each point
-    for i, (part, mean) in enumerate(part_means.items()):
-        ax3.text(i, mean, f'{mean:.3f}', ha='center', va='bottom')
-    
-    ax3.legend()
-    
-    # Plot 4: R Chart
-    part_ranges = data.groupby('Part')['Measurement'].apply(lambda x: x.max() - x.min())
-    r_mean = part_ranges.mean()
-    r_ucl = r_mean * 3.267  # D4 constant for n=2
-    r_lcl = 0  # D3 constant for n=2
-    
-    part_ranges.plot(kind='line', marker='o', ax=ax4)
-    ax4.axhline(y=r_mean, color='r', linestyle='--', label=f'Mean Range: {r_mean:.3f}')
-    ax4.axhline(y=r_ucl, color='g', linestyle='--', label=f'UCL: {r_ucl:.3f}')
-    ax4.axhline(y=r_lcl, color='g', linestyle='--', label=f'LCL: {r_lcl:.3f}')
-    ax4.set_title('R Chart by Part')
+    for i, v in enumerate(contrib_vals):
+        ax1.text(i - width/2, v + 2, f"{v:.1f}", ha='center', fontsize=9)
+    for i, v in enumerate(study_var_vals):
+        ax1.text(i + width/2, v + 2, f"{v:.1f}", ha='center', fontsize=9)
+
+    # S Chart (Top Right)
+    ax2 = axes[0, 1]
+    ax2.plot(parts, stds.values, marker='o', linestyle='-', color='#0070C0')
+    ax2.axhline(s_UCL, color='brown', linestyle='-', label=f'UCL={s_UCL:.6f}')
+    ax2.axhline(s_CL, color='green', linestyle='-', label=f'S={s_CL:.6f}')
+    ax2.axhline(s_LCL, color='black', linestyle='-', label=f'LCL={s_LCL:.6f}')
+    ax2.set_title('S Chart')
+    ax2.set_ylabel('Sample StDev')
+    ax2.set_xticks([])
+    ax2.legend(loc='upper left', fontsize=8)
+    ax2.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.5f'))
+
+    # Measurement by Part (Bottom Left)
+    ax3 = axes[1, 0]
+    ax3.plot(parts, means.values, marker='*', linestyle='-', color='gray')
+    ax3.set_title(f'{measurement_name} by {part_col}')
+    ax3.set_xlabel(part_col)
+    ax3.set_ylabel('Sample Mean')
+    ax3.tick_params(axis='x', rotation=45)
+
+    # XBar Chart (Bottom Right)
+    ax4 = axes[1, 1]
+    ax4.plot(parts, means.values, marker='o', linestyle='-', color='#0070C0')
+    ax4.axhline(xbar_UCL, color='brown', linestyle='-', label=f'UCL={xbar_UCL:.6f}')
+    ax4.axhline(xbar_cl, color='green', linestyle='-', label=f'CL={xbar_cl:.6f}')
+    ax4.axhline(xbar_LCL, color='black', linestyle='-', label=f'LCL={xbar_LCL:.6f}')
+    ax4.set_title('XBar Chart')
     ax4.set_xlabel('Part')
-    ax4.set_ylabel('Range')
-    
-    # Add value labels for each point
-    for i, (part, range_val) in enumerate(part_ranges.items()):
-        ax4.text(i, range_val, f'{range_val:.3f}', ha='center', va='bottom')
-    
-    ax4.legend()
-    
-    plt.suptitle(f'Gage R&R Analysis for {measurement_name}', y=1.02)
-    plt.tight_layout()
-    plt.savefig(f'gage_rr_plots_{measurement_name}.png', dpi=300, bbox_inches='tight')
-    plt.close()
+    ax4.set_ylabel('Sample Mean')
+    ax4.set_xticks([])
+    ax4.legend(loc='upper left', fontsize=8)
+    ax4.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.5f'))
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig(f'gage_rr_plots_{measurement_name}.png', dpi=150)
+    plt.close(fig)
 
 def create_pdf_report(results_dict, anova_tables_dict, data_dict):
     """Create a PDF report with ANOVA results and plots."""
