@@ -1,160 +1,83 @@
-# Gage R&R Analysis Tool
+# Gage R&R Analysis Tool (Streamlit)
 
-A Python-based tool for performing Gage Repeatability and Reproducibility (Gage R&R) analysis on measurement data. This tool helps evaluate the quality of measurement systems by analyzing the variation in measurements.
+A simple, no-coding-required app to analyze Gage Repeatability and Reproducibility (Gage R&R) in your browser.
 
 ## Features
 
-- Interactive file selection using a graphical interface
+- Interactive, browser-based UI (Streamlit)
 - Comprehensive data cleaning and validation
-- Analysis of multiple measurement types
-- Detailed statistical analysis including:
-  - ANOVA analysis
-  - Variance components
-  - Percent contribution
-  - Study variation
-  - Tolerance analysis
-- Visual representation through various plots:
-  - Components of variation
-  - Response by part
-  - X-bar chart
-  - R chart
-- PDF report generation with detailed results
+- Supported measurements only: `solder_thickness`, `solder_diameter` (e.g., `Solder_Diameter_Layer1`), `solder_area`
+- One-operator GR&R using one-way ANOVA (Measurement ~ Part)
+- Metrics: variance components, % Contribution (adds to 100%), % Study Variation (not additive), NDC
+- Plots: Components view, S chart, Response-by-part, X̄ chart
+- Note: PDF export and desktop executable were removed
 
 ## Requirements
 
-- Python 3.6 or higher
-- Required Python packages (install using `pip install -r requirements.txt`):
-  - pandas
-  - numpy
-  - statsmodels
-  - matplotlib
-  - seaborn
-  - reportlab
-  - tkinter (usually comes with Python)
-  - pyinstaller (for building executable)
+- Python 3.8 or higher
+- Install packages with: `pip install -r requirements.txt`
 
-## Installation
+## Quick Start (no DevOps experience needed)
 
-### Option 1: Using Python Script
+1) Install Python
+- Windows/macOS: download and install from `https://www.python.org/downloads/`
+- On Windows, check “Add Python to PATH” during install
 
-1. Clone the repository:
+2) Get this project
+- Download ZIP from the GitHub repository and unzip, or clone via Git
+
+3) Open a terminal and go to the folder
 ```bash
-git clone [repository-url]
-cd [repository-name]
+cd path/to/grr
 ```
 
-2. Create a virtual environment (optional but recommended):
+4) (Recommended) Create and activate a virtual environment
+- Windows (PowerShell):
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+py -m venv .venv
+.\.venv\Scripts\activate
+```
+- macOS:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-3. Install required packages:
-```bash
-pip install -r requirements.txt
-```
-
-### Option 2: Using Executable
-
-1. Download the latest release from the releases page
-2. Extract the ZIP file
-3. Run `GageRRAnalysis.exe`
-
-## Building the Executable
-
-To build the executable yourself:
-
-1. Install the requirements:
+5) Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Run the setup script:
+6) Run the app
 ```bash
-python setup.py
+streamlit run gage_rr_analysis.py
 ```
+The browser will open automatically. If not, visit `http://localhost:8501`.
 
-3. The executable will be created in the `dist` folder
-
-## Usage
-
-### Using Python Script
-
-1. Run the script:
-```bash
-python gage_rr_analysis.py
-```
-
-### Using Executable
-
-1. Double-click `GageRRAnalysis.exe`
-
-2. Use the file selection dialog to choose your data file
-   - The file should be a tab-separated text file
-   - Required columns:
-     - `Comp_Name`: Part identifier
-     - `Solder_Diameter_Layer1` and subsequent measurement columns
-   - Excluded columns:
-     - `Location_X(pixel)`
-     - `Location_Y(pixel)`
-     - `Initial_H`
-     - `Retry_H`
-
-3. The program will:
-   - Perform data cleaning and validation
-   - Generate data cleaning plots
-   - Perform Gage R&R analysis for each measurement
-   - Create a comprehensive PDF report
-
-4. Output files:
-   - `data_cleaning_plots.png`: Visual representation of data distribution
-   - `gage_rr_plots_[measurement_name].png`: Analysis plots for each measurement
-   - `gage_rr_report.pdf`: Detailed analysis report
+## Using the App
+1) Upload your data file (`.txt`, `.tsv`, or `.csv`)
+2) Select your measurement columns (only supported names will appear)
+3) Keep “Data Cleaning Report” checked to view checks and boxplots
+4) Review ANOVA, key metrics, and charts for each selected measurement
 
 ## Data Format
 
-The input data file should be a tab-separated text file with the following structure:
+Tab- or comma-delimited text file with a part identifier and measurement columns. Example:
 
 ```
-Comp_Name    Solder_Diameter_Layer1    [Other Measurement Columns]
-Part1        value1                     value2
-Part2        value3                     value4
+Comp_Name    Solder_Diameter_Layer1    Solder_Thickness    Solder_Area
+Part1        0.123                      0.045               3.21
+Part2        0.127                      0.044               3.18
 ...
 ```
 
-## Analysis Results
-
-The generated PDF report includes:
-
-1. ANOVA Results
-   - Sum of squares
-   - Degrees of freedom
-   - Mean square
-   - F-value
-   - p-value
-
-2. Variance Components
-   - Repeatability
-   - Part variation
-   - Total variation
-
-3. Percent Contribution
-   - Repeatability
-   - Part variation
-
-4. Study Variation
-   - Repeatability
-   - Part variation
-   - Total variation
-
-5. Percent Tolerance
-   - Repeatability
-   - Total
+## Notes on Metrics
+- % Contribution (variance-based) for Repeatability and Part adds to 100%
+- % Study Variation (std-dev based) is not additive and will not sum to 100%
+- NDC uses the standard formula and returns “—” if Repeatability variance is 0
 
 ## Contributing
-
-Feel free to submit issues and enhancement requests!
+Issues and enhancement requests are welcome.
 
 ## License
-
-[Add your chosen license here] 
+See `LICENSE`.
