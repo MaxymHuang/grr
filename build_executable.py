@@ -170,13 +170,10 @@ def build_executable():
     """Build the executable using PyInstaller."""
     print("Building executable...")
     
-    # Command line arguments for PyInstaller
+    # Command line arguments for PyInstaller - only spec file needed
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--clean",
-        "--onefile",
-        "--windowed",  # No console window (remove for debugging)
-        "--name", "GageRR_Analysis",
         "gage_rr_analysis.spec"
     ]
     
